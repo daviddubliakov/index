@@ -1,0 +1,822 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Locks & Queues</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: "signal box" — sticky route map on the left (modules as stations), lesson track on the right; stacks on phones */
+:root{
+  --bg:#eef1f4; --surface:#ffffff; --sunk:#e4e9ee; --ink:#16202a; --muted:#5a6774; --line:#d2d9e1;
+  --signal:#c47a00; --signal-soft:#fbefd9; --go:#1d7f54; --go-soft:#dff1e8; --stop:#bf3328; --stop-soft:#f8e1de;
+  --code-bg:#121b24; --code-fg:#dbe4ec; --code-dim:#7f8e9c; --code-kw:#f0b13a; --code-str:#7fd1a6;
+  --f-display:"Unbounded","Onest",system-ui,sans-serif;
+  --f-body:"Onest",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0d1319; --surface:#141d26; --sunk:#1a2531; --ink:#e2e8ee; --muted:#93a0ad; --line:#26323e;
+  --signal:#f0a623; --signal-soft:#33280f; --go:#45c08a; --go-soft:#12301f; --stop:#ee5e52; --stop-soft:#3a1916;
+  --code-bg:#0a1016; --code-fg:#d6dfe7; --code-dim:#6f7e8b; --code-kw:#f0b13a; --code-str:#7fd1a6; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0d1319; --surface:#141d26; --sunk:#1a2531; --ink:#e2e8ee; --muted:#93a0ad; --line:#26323e;
+  --signal:#f0a623; --signal-soft:#33280f; --go:#45c08a; --go-soft:#12301f; --stop:#ee5e52; --stop-soft:#3a1916;
+  --code-bg:#0a1016; --code-fg:#d6dfe7; --code-dim:#6f7e8b; --code-kw:#f0b13a; --code-str:#7fd1a6; color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:16px;line-height:1.6;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+a{color:var(--signal);text-underline-offset:3px}
+code{font-family:var(--f-mono);font-size:.88em;background:var(--sunk);padding:.08em .35em;border-radius:4px}
+h1,h2,h3{text-wrap:balance;line-height:1.2;margin:0}
+h2{font-family:var(--f-display);font-weight:700;font-size:clamp(1.35rem,3vw,1.75rem);letter-spacing:-.01em}
+h3{font-size:1.12rem;font-weight:700;margin-top:6px}
+p{margin:0}
+.wrap{max-width:1120px;margin:0 auto;display:grid;grid-template-columns:230px minmax(0,1fr);gap:48px;padding-block:40px 80px}
+@media (max-width:860px){.wrap{grid-template-columns:minmax(0,1fr);gap:24px;padding-block:24px 64px}}
+
+/* hero */
+.hero{grid-column:1/-1;display:flex;flex-direction:column;gap:14px;max-width:760px}
+.eyebrow{font-family:var(--f-mono);font-size:.78rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.hero h1{font-family:var(--f-display);font-weight:700;font-size:clamp(2rem,6vw,3.3rem);letter-spacing:-.02em}
+.hero h1 span{color:var(--signal)}
+.hero p{color:var(--muted);font-size:1.06rem;max-width:62ch}
+.lamps{display:flex;gap:8px;align-items:center}
+.lamp{width:12px;height:12px;border-radius:50%;background:var(--line)}
+.lamp.r{background:var(--stop)} .lamp.a{background:var(--signal)} .lamp.g{background:var(--go)}
+
+/* route nav */
+nav.route{position:sticky;top:calc(env(safe-area-inset-top,0px) + 20px);align-self:start}
+nav.route ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;border-left:2px solid var(--line)}
+nav.route a{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;padding:8px 0 8px 14px;margin-left:-2px;border-left:2px solid transparent;color:var(--ink);text-decoration:none;font-size:.93rem}
+nav.route a:hover,nav.route a:focus-visible{border-left-color:var(--signal);outline:none}
+nav.route a.done .num{background:var(--go);color:var(--surface);border-color:var(--go)}
+nav.route .num{grid-row:span 2;width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);display:grid;place-items:center;font-family:var(--f-mono);font-size:.72rem;background:var(--surface)}
+nav.route .min{font-family:var(--f-mono);font-size:.72rem;color:var(--muted)}
+.progress{margin-top:16px;font-family:var(--f-mono);font-size:.78rem;color:var(--muted)}
+.bar{height:6px;background:var(--sunk);border-radius:3px;margin-top:6px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--go);transition:width .3s}
+@media (max-width:860px){
+  nav.route{position:static;overflow-x:auto}
+  nav.route ol{flex-direction:row;border-left:0;border-bottom:2px solid var(--line);width:max-content}
+  nav.route a{border-left:0;border-bottom:2px solid transparent;margin:0 0 -2px;padding:8px 12px}
+  nav.route a .lbl{white-space:nowrap}
+}
+
+main{display:flex;flex-direction:column;gap:72px;min-width:0}
+section.mod{display:flex;flex-direction:column;gap:18px;scroll-margin-top:24px}
+.mod-head{display:flex;flex-direction:column;gap:6px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.mod-head .eyebrow{color:var(--signal)}
+.prose{display:flex;flex-direction:column;gap:12px;max-width:68ch}
+.prose ul{margin:0;padding-left:1.2em;display:flex;flex-direction:column;gap:6px}
+.done-btn{align-self:flex-start;font:600 .9rem var(--f-body);padding:9px 14px;border-radius:8px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.done-btn[aria-pressed="true"]{background:var(--go-soft);border-color:var(--go);color:var(--go)}
+
+/* concept grid */
+.terms{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.term{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.term b{font-family:var(--f-mono);font-size:.88rem;color:var(--signal)}
+.term p{font-size:.93rem;color:var(--muted)}
+
+.callout{border-left:3px solid var(--signal);background:var(--signal-soft);padding:12px 16px;border-radius:0 8px 8px 0;max-width:68ch}
+.callout.bad{border-color:var(--stop);background:var(--stop-soft)}
+.callout.good{border-color:var(--go);background:var(--go-soft)}
+.callout b{display:block;margin-bottom:2px}
+
+/* lab panels */
+.lab{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:14px;box-shadow:0 1px 0 var(--line)}
+.lab-title{display:flex;align-items:center;gap:10px;font-weight:700}
+.lab-title .tag{font-family:var(--f-mono);font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;background:var(--ink);color:var(--surface);padding:3px 7px;border-radius:4px}
+.lab .hint{color:var(--muted);font-size:.92rem}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button.b{font:600 .9rem var(--f-body);padding:8px 13px;border-radius:7px;border:1.5px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer}
+button.b:hover{border-color:var(--muted)}
+button.b.primary{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+button.b.danger{border-color:var(--stop);color:var(--stop)}
+button.b:focus-visible,.chip:focus-visible,.seg button:focus-visible,input:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
+.seg{display:inline-flex;border:1.5px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{font:600 .86rem var(--f-body);padding:7px 12px;border:0;background:var(--bg);color:var(--muted);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
+.log{font-family:var(--f-mono);font-size:.82rem;background:var(--code-bg);color:var(--code-fg);border-radius:8px;padding:12px;height:190px;overflow:auto;display:flex;flex-direction:column;gap:2px}
+.log .A{color:#8ec5ff}.log .B{color:#f7b3e0}.log .w{color:var(--code-dim)}.log .ok{color:#7fd1a6}.log .err{color:#ff8a7e}
+.stats{display:flex;flex-wrap:wrap;gap:20px}
+.stat{display:flex;flex-direction:column}
+.stat span{font-family:var(--f-mono);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.stat b{font-family:var(--f-mono);font-size:1.5rem;font-variant-numeric:tabular-nums}
+.verdict{font-weight:600;padding:8px 12px;border-radius:8px;background:var(--sunk)}
+.verdict.ok{background:var(--go-soft);color:var(--go)} .verdict.err{background:var(--stop-soft);color:var(--stop)}
+
+/* timeline steps */
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.steps li{display:grid;grid-template-columns:34px 1fr;gap:10px;align-items:start;padding:8px 10px;border-radius:8px;color:var(--muted);opacity:.55}
+.steps li.on{opacity:1;color:var(--ink)}
+.steps li.cur{background:var(--signal-soft)}
+.steps li .t{font-family:var(--f-mono);font-size:.78rem;padding-top:2px}
+.steps li.bad{background:var(--stop-soft)} .steps li.good{background:var(--go-soft)}
+
+/* exchange playground */
+.xgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:16px;align-items:start}
+@media (max-width:640px){.xgrid{grid-template-columns:minmax(0,1fr)}}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font:500 .8rem var(--f-mono);padding:5px 9px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer}
+.field{display:flex;gap:8px;flex-wrap:wrap}
+.field input{flex:1;min-width:0;font:500 .95rem var(--f-mono);padding:8px 10px;border-radius:7px;border:1.5px solid var(--line);background:var(--bg);color:var(--ink)}
+.queues{display:flex;flex-direction:column;gap:8px}
+.q{border:1.5px solid var(--line);border-radius:9px;padding:10px 12px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center;transition:border-color .2s,background .2s}
+.q.hit{border-color:var(--go);background:var(--go-soft)}
+.q .qn{font-family:var(--f-mono);font-weight:600}
+.q .bind{font-family:var(--f-mono);font-size:.78rem;color:var(--muted);grid-column:1}
+.q .cnt{grid-row:1/span 2;grid-column:2;display:flex;gap:3px;flex-wrap:wrap;max-width:120px;justify-content:flex-end}
+.q .cnt i{width:10px;height:14px;border-radius:2px;background:var(--signal)}
+.diagram{font-family:var(--f-mono);font-size:.82rem;color:var(--muted);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.diagram b{color:var(--ink);background:var(--sunk);padding:3px 8px;border-radius:5px;font-weight:600}
+
+/* ack demo */
+.belt{display:flex;gap:6px;flex-wrap:wrap;min-height:40px;align-items:center}
+.msg{font:600 .8rem var(--f-mono);padding:7px 10px;border-radius:6px;background:var(--sunk);border:1.5px solid var(--line)}
+.msg.re{border-color:var(--signal);background:var(--signal-soft)}
+.msg.fly{border-color:var(--ink)}
+.msg.ok{background:var(--go-soft);border-color:var(--go);color:var(--go)}
+.msg.lost{background:var(--stop-soft);border-color:var(--stop);color:var(--stop);text-decoration:line-through}
+.lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.lane span{display:block;font-family:var(--f-mono);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+
+/* code */
+.codebox{position:relative;min-width:0}
+pre{margin:0;background:var(--code-bg);color:var(--code-fg);border-radius:10px;padding:16px;overflow-x:auto;font:400 .84rem/1.6 var(--f-mono);tab-size:2}
+pre .c{color:var(--code-dim)} pre .k{color:var(--code-kw)} pre .s{color:var(--code-str)}
+.codebox .file{font-family:var(--f-mono);font-size:.76rem;color:var(--muted);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.copy{font:600 .74rem var(--f-mono);padding:4px 9px;border-radius:5px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+
+/* tables */
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:560px;font-size:.92rem}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--f-mono);font-size:.74rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--sunk)}
+tr:last-child td{border-bottom:0}
+
+/* exercises */
+.tasks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.tasks label{display:grid;grid-template-columns:22px 1fr;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:12px 14px;cursor:pointer}
+.tasks input{width:18px;height:18px;margin-top:3px;accent-color:var(--go)}
+.tasks small{display:block;color:var(--muted)}
+
+/* quiz */
+.quiz{display:flex;flex-direction:column;gap:14px}
+.qcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.qcard .qq{font-weight:600}
+.opts{display:flex;flex-direction:column;gap:6px}
+.opt{text-align:left;font:500 .93rem var(--f-body);padding:9px 12px;border-radius:8px;border:1.5px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer}
+.opt.right{border-color:var(--go);background:var(--go-soft)}
+.opt.wrong{border-color:var(--stop);background:var(--stop-soft)}
+.opt:disabled{cursor:default}
+.expl{font-size:.92rem;color:var(--muted)}
+.score{font-family:var(--f-mono);font-size:.9rem}
+
+.res{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.res a{display:flex;flex-direction:column;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;text-decoration:none;color:var(--ink)}
+.res a:hover{border-color:var(--signal)}
+.res a span{font-size:.88rem;color:var(--muted)}
+.res a em{font-style:normal;font-family:var(--f-mono);font-size:.72rem;color:var(--signal);letter-spacing:.05em;text-transform:uppercase}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header class="hero">
+    <div class="lamps" aria-hidden="true"><i class="lamp r"></i><i class="lamp a"></i><i class="lamp g"></i></div>
+    <div class="eyebrow">Hands-on backend lesson · ~1 h 45 min</div>
+    <h1>Locks <span>&amp;</span> Queues</h1>
+    <p>From two threads racing over one counter to distributed locks and RabbitMQ. Each module has a short explanation, a simulation you can play with, and practical rules of thumb. At the end: a Node.js lab and a quiz.</p>
+  </header>
+
+  <nav class="route" aria-label="Modules">
+    <ol id="routeList">
+      <li><a href="#m1" data-m="m1"><span class="num">1</span><span class="lbl">Process synchronization</span><span class="min">20 min</span></a></li>
+      <li><a href="#m2" data-m="m2"><span class="num">2</span><span class="lbl">Distributed locks</span><span class="min">25 min</span></a></li>
+      <li><a href="#m3" data-m="m3"><span class="num">3</span><span class="lbl">Message queues</span><span class="min">15 min</span></a></li>
+      <li><a href="#m4" data-m="m4"><span class="num">4</span><span class="lbl">Inside RabbitMQ</span><span class="min">25 min</span></a></li>
+      <li><a href="#m5" data-m="m5"><span class="num">5</span><span class="lbl">Terminal lab</span><span class="min">25 min</span></a></li>
+      <li><a href="#m6" data-m="m6"><span class="num">6</span><span class="lbl">Cheat sheet + quiz</span><span class="min">15 min</span></a></li>
+    </ol>
+    <div class="progress"><span id="progTxt">0 / 6 done</span><div class="bar"><i id="progBar"></i></div></div>
+  </nav>
+
+  <main>
+  <!-- ============ M1 ============ -->
+  <section class="mod" id="m1">
+    <div class="mod-head"><div class="eyebrow">Module 1 · 20 min</div><h2>Process synchronization</h2></div>
+    <div class="prose">
+      <p>It all starts with one fact: <code>counter = counter + 1</code> is not atomic. It is three steps: read, compute, write. When two workers interleave those steps, one write overwrites the other. That is a <b>race condition</b>, and the piece of code that only one worker may run at a time is a <b>critical section</b>.</p>
+      <p>Node.js runs JavaScript on a single thread, yet races still happen: between two <code>await</code>s, other requests get to read the same data. The classic case: two HTTP requests check stock at the same moment, both see "1", both sell.</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title"><span class="tag">Lab 1</span>Racing for a counter</div>
+      <p class="hint">Two workers, A and B, each do 5 increments. Expected result: 10. A scheduler randomly picks who runs the next step. Run it a few times without a mutex, then turn it on.</p>
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Mode"><button id="raceNoLock" aria-pressed="true">No lock</button><button id="raceLock" aria-pressed="false">With mutex</button></div>
+        <button class="b" id="raceStep">Step</button>
+        <button class="b primary" id="raceRun">Run all</button>
+        <button class="b" id="raceReset">Reset</button>
+      </div>
+      <div class="stats">
+        <div class="stat"><span>counter</span><b id="raceCounter">0</b></div>
+        <div class="stat"><span>expected</span><b>10</b></div>
+        <div class="stat"><span>lock held by</span><b id="raceHolder">—</b></div>
+      </div>
+      <div class="log" id="raceLog" aria-live="polite"></div>
+      <div class="verdict" id="raceVerdict">Press "Run all".</div>
+    </div>
+
+    <h3>Tools worth knowing by name</h3>
+    <div class="terms">
+      <div class="term"><b>Mutex</b><p>A lock with a single owner. Whoever takes it releases it. Guards a critical section.</p></div>
+      <div class="term"><b>Semaphore(N)</b><p>A counter of permits. Lets at most N in at once: a DB connection pool, a limit of 5 parallel API calls.</p></div>
+      <div class="term"><b>Read-write lock</b><p>Many readers together, or one writer alone. Useful when reads vastly outnumber writes.</p></div>
+      <div class="term"><b>Atomic / CAS</b><p>Compare-and-swap: "write X only if the current value is Y". The basis of lock-free structures and optimistic locking.</p></div>
+      <div class="term"><b>Pessimistic lock</b><p>Lock first, then work. <code>SELECT … FOR UPDATE</code>. Good when conflicts are frequent.</p></div>
+      <div class="term"><b>Optimistic lock</b><p>Work without a lock, check the version on write: <code>UPDATE … WHERE version = 7</code>. Zero rows updated means retry. Good when conflicts are rare.</p></div>
+    </div>
+
+    <div class="callout bad"><b>Deadlock</b>A holds lock X and waits for Y; B holds Y and waits for X. It needs all four Coffman conditions: mutual exclusion, hold-and-wait, no preemption, circular wait. Break any one and deadlock is impossible. In practice: always take locks in the same order (for example, by ascending id) and set a timeout.</div>
+
+    <h3>Atomic operation or lock?</h3>
+    <div class="prose">
+      <p>The deciding question: <b>does "check and change" fit into one statement against one store?</b> If yes, an atomic operation is enough. If something else sits between the check and the write, you need a lock.</p>
+    </div>
+    <div class="codebox"><div class="file"><span>Race: the check lives in code, the write in the DB</span></div>
+<pre><span class="k">const</span> { qty } = <span class="k">await</span> db.one(<span class="s">'SELECT qty FROM stock WHERE id = 5'</span>);
+<span class="k">if</span> (qty &gt; 0) {                      <span class="c">// another request also sees qty = 1 here</span>
+  <span class="k">await</span> db.none(<span class="s">'UPDATE stock SET qty = $1 WHERE id = 5'</span>, [qty - 1]);
+}</pre></div>
+    <div class="codebox"><div class="file"><span>Atomic: check and change in one statement</span></div>
+<pre><span class="k">const</span> res = <span class="k">await</span> db.result(<span class="s">'UPDATE stock SET qty = qty - 1 WHERE id = 5 AND qty &gt; 0'</span>);
+<span class="k">if</span> (res.rowCount === 0) <span class="k">throw new</span> Error(<span class="s">'Out of stock'</span>);</pre></div>
+    <div class="prose">
+      <p>There is still a lock in the atomic version: the database locks the row for the few milliseconds the UPDATE runs. You just don't manage it yourself. Three questions to decide:</p>
+      <ul>
+        <li><b>Is everything I check and change in one store?</b> Postgres plus an external API means database atomicity can't cover it.</li>
+        <li><b>Can the condition go into <code>WHERE</code>?</b> <code>qty &gt; 0</code>, <code>used &lt; 100</code>, <code>version = 7</code>, <code>status = 'pending'</code>. Then it's an atomic statement.</li>
+        <li><b>Is there anything external between the check and the write?</b> An HTTP call, file generation, sending an email, long computation. No <code>WHERE</code> covers that; you need a lock.</li>
+      </ul>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>Task</th><th>Tool</th></tr></thead>
+      <tbody>
+        <tr><td>Decrement stock</td><td><code>UPDATE … SET qty = qty - 1 WHERE qty &gt; 0</code></td></tr>
+        <tr><td>Coupon limited to 100 uses</td><td><code>UPDATE coupons SET used = used + 1 WHERE used &lt; 100</code></td></tr>
+        <tr><td>Unique username</td><td>Unique constraint, no checks in code</td></tr>
+        <tr><td>Transfer between two accounts in one DB</td><td>Transaction: both UPDATEs with <code>balance &gt;= amount</code>, or <code>SELECT … FOR UPDATE</code></td></tr>
+        <tr><td>Two admins edit the same article</td><td>Optimistic lock: <code>WHERE id = 1 AND version = 7</code>, show a conflict on 0 rows</td></tr>
+        <tr><td>Cron job must run on one of 3 instances</td><td>Distributed lock: there's no data to guard, only "who runs it"</td></tr>
+        <tr><td>Charge via a payment API exactly once per order</td><td>External call between check and write: lock per order plus the provider's idempotency key</td></tr>
+        <tr><td>Expensive report, don't compute it twice</td><td>Distributed lock (efficiency lock)</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout"><b>Rule of thumb</b>Go up the ladder only as far as you need: conditional UPDATE or constraint → transaction with <code>FOR UPDATE</code> or optimistic version → distributed lock. Keep slow external calls out of DB transactions, or the row stays locked for the whole call.</div>
+    <button class="done-btn" data-done="m1" aria-pressed="false">Mark module done</button>
+  </section>
+
+  <!-- ============ M2 ============ -->
+  <section class="mod" id="m2">
+    <div class="mod-head"><div class="eyebrow">Module 2 · 25 min</div><h2>Distributed locks</h2></div>
+    <div class="prose">
+      <p>A mutex lives in one process's memory. Once you have 3 API instances behind a load balancer or 5 workers on different machines, they need to agree through something shared: Redis, a database, etcd, ZooKeeper.</p>
+      <p>Typical jobs: only one instance runs a cron task; only one worker processes order #123; don't send a user the same email twice.</p>
+    </div>
+
+    <h3>Two different purposes</h3>
+    <div class="terms">
+      <div class="term"><b>Efficiency lock</b><p>Prevents duplicate work. If two workers occasionally do the job together, nothing breaks (an extra email, a recomputed cache). Single-node Redis is fine.</p></div>
+      <div class="term"><b>Correctness lock</b><p>Protects data from corruption (money, stock). Here the lock alone guarantees nothing: you need a fencing token or a transaction in the storage itself.</p></div>
+    </div>
+
+    <h3>Redis: the correct minimum</h3>
+    <div class="codebox"><div class="file"><span>redis-cli</span></div>
+<pre><span class="c"># acquire: only if the key doesn't exist (NX), TTL 10 s (PX), value = unique token</span>
+SET lock:order:123 <span class="s">"c1-8f3a…"</span> NX PX 10000
+
+<span class="c"># release: only if the lock is still mine (atomically, via Lua)</span>
+<span class="k">if</span> redis.call(<span class="s">"get"</span>, KEYS[1]) == ARGV[1] <span class="k">then</span>
+  <span class="k">return</span> redis.call(<span class="s">"del"</span>, KEYS[1])
+<span class="k">else return</span> 0 <span class="k">end</span></pre></div>
+    <div class="prose"><ul>
+      <li><b>TTL is mandatory</b>, otherwise a crashed process holds the lock forever.</li>
+      <li><b>A unique value</b>, because without it a client whose lock already expired will delete someone else's lock.</li>
+      <li><b>A Lua script</b>, because GET and DEL as separate commands create a race again.</li>
+    </ul></div>
+
+    <div class="callout bad"><b>The problem people rarely mention</b>The TTL runs out while the client is "asleep": a GC pause, swapping, a stalled network. The client wakes up sure it still holds the lock and writes to the database, while someone else already holds it. No algorithm on the lock server's side (including Redlock across 5 Redis nodes) fixes this.</div>
+
+    <div class="lab">
+      <div class="lab-title"><span class="tag">Lab 2</span>GC pause and the fencing token</div>
+      <p class="hint">Step through the scenario. Then switch to fencing token and go again. The difference is in the last step.</p>
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Protection"><button id="fNo" aria-pressed="true">TTL only</button><button id="fYes" aria-pressed="false">+ fencing token</button></div>
+        <button class="b primary" id="fNext">Next step</button>
+        <button class="b" id="fReset">Reset</button>
+      </div>
+      <ol class="steps" id="fSteps"></ol>
+      <div class="verdict" id="fVerdict">Step 0 of 6</div>
+    </div>
+
+    <div class="prose">
+      <p>A <b>fencing token</b> is a monotonically increasing number the lock service hands out with every lock. The storage remembers the highest token it has seen and rejects writes with an older one. In SQL it's a single condition:</p>
+    </div>
+    <div class="codebox"><div class="file"><span>SQL</span></div>
+<pre><span class="k">UPDATE</span> orders <span class="k">SET</span> status = <span class="s">'paid'</span>, fence = $token
+<span class="k">WHERE</span> id = $id <span class="k">AND</span> fence &lt; $token;   <span class="c">-- 0 rows = my lock is stale</span></pre></div>
+
+    <h3>What to build it on</h3>
+    <div class="tbl"><table>
+      <thead><tr><th>Tool</th><th>How</th><th>When to choose</th></tr></thead>
+      <tbody>
+        <tr><td>Redis (1 node)</td><td><code>SET NX PX</code> + Lua release</td><td>Efficiency lock, Redis already in the stack, speed matters</td></tr>
+        <tr><td>Redlock (5 nodes)</td><td>Lock on a majority of independent Redis nodes</td><td>Debated. Kleppmann's critique: depends on clocks and gives no fencing token</td></tr>
+        <tr><td>PostgreSQL</td><td><code>pg_advisory_lock(42)</code>, <code>SELECT … FOR UPDATE SKIP LOCKED</code></td><td>Data already in Postgres. The simplest route to correctness</td></tr>
+        <tr><td>etcd / ZooKeeper</td><td>Lease + revision / ephemeral sequential znode</td><td>Correctness, leader election. Revision or zxid acts as a fencing token</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="callout good"><b>In short</b>To deduplicate cron jobs, Redis <code>SET NX PX</code> with a unique token is enough. If the lock protects money, add a fencing token checked by the database, or skip the distributed lock entirely: a conditional UPDATE, a unique constraint, or partitioning tasks by key so each key is handled by one worker.</div>
+    <button class="done-btn" data-done="m2" aria-pressed="false">Mark module done</button>
+  </section>
+
+  <!-- ============ M3 ============ -->
+  <section class="mod" id="m3">
+    <div class="mod-head"><div class="eyebrow">Module 3 · 15 min</div><h2>Message queues: why and with what guarantees</h2></div>
+    <div class="prose">
+      <p>A queue sits between whoever creates work and whoever does it. The producer drops a message and moves on; the consumer picks it up at its own pace.</p>
+    </div>
+    <div class="terms">
+      <div class="term"><b>Decoupling</b><p>The order service knows nothing about email, analytics, or the warehouse. It just publishes <code>order.created</code>.</p></div>
+      <div class="term"><b>Load leveling</b><p>A 5,000 RPS spike lands in the queue; workers drain it at 500/s. Nothing falls over.</p></div>
+      <div class="term"><b>Async</b><p>The user gets 202 Accepted in 30 ms; the PDF gets generated later.</p></div>
+      <div class="term"><b>Retries and fault isolation</b><p>Email service down for an hour? Messages wait in the queue instead of getting lost.</p></div>
+    </div>
+
+    <h3>Delivery semantics</h3>
+    <div class="tbl"><table>
+      <thead><tr><th>Guarantee</th><th>How you get it</th><th>Risk</th></tr></thead>
+      <tbody>
+        <tr><td>At-most-once</td><td>Auto-ack: the broker deletes the message as soon as it's delivered</td><td>Consumer crashes, message is lost</td></tr>
+        <tr><td>At-least-once</td><td>Manual ack after processing</td><td>Duplicates: crashed after the work but before the ack</td></tr>
+        <tr><td>Exactly-once</td><td>At-least-once + idempotent consumer</td><td>Not achievable over a network as such. You build the "exactly once" effect yourself</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout"><b>Idempotent consumer</b>Every message carries a <code>messageId</code>. In the same transaction as the business write, the consumer inserts that id into a <code>processed_messages</code> table with a unique constraint. A duplicate hits the constraint and is simply acked. Module 5 walks through it step by step.</div>
+    <div class="callout"><b>Dual write and the Outbox pattern</b>"Write to the DB and publish to the queue" spans two systems with no shared transaction. Crash in between and they drift apart. The fix: in the same transaction, write the event into an <code>outbox</code> table, and let a separate process (or CDC such as Debezium) move it to the broker.</div>
+    <button class="done-btn" data-done="m3" aria-pressed="false">Mark module done</button>
+  </section>
+
+  <!-- ============ M4 ============ -->
+  <section class="mod" id="m4">
+    <div class="mod-head"><div class="eyebrow">Module 4 · 25 min</div><h2>Inside RabbitMQ</h2></div>
+    <div class="prose">
+      <p>The key thing to remember: <b>a RabbitMQ producer never writes to a queue directly</b>. It writes to an <b>exchange</b> with a <b>routing key</b>. The exchange uses <b>bindings</b> to decide which queues get a copy. Consumers read from queues.</p>
+    </div>
+    <div class="diagram" aria-label="Flow diagram"><b>Producer</b>→ routing key →<b>Exchange</b>→ bindings →<b>Queue(s)</b>→<b>Consumer(s)</b>→ ack</div>
+
+    <div class="terms">
+      <div class="term"><b>direct</b><p>Exact match between routing key and binding key. Route tasks by type.</p></div>
+      <div class="term"><b>topic</b><p>Dot-separated patterns: <code>*</code> = exactly one word, <code>#</code> = zero or more words.</p></div>
+      <div class="term"><b>fanout</b><p>Ignores the key, a copy goes to every bound queue. Pub/sub, broadcast.</p></div>
+      <div class="term"><b>headers</b><p>Routes on headers instead of the key. Rarely used.</p></div>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title"><span class="tag">Lab 3</span>Exchange router</div>
+      <p class="hint">Pick an exchange type, set a routing key, publish. See which queues got a copy. Try <code>order.created.eu</code> on topic, then <code>order.created</code>.</p>
+      <div class="xgrid">
+        <div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+          <div class="seg" role="group" aria-label="Exchange type" id="xType">
+            <button data-t="direct" aria-pressed="false">direct</button><button data-t="topic" aria-pressed="true">topic</button><button data-t="fanout" aria-pressed="false">fanout</button>
+          </div>
+          <div class="field"><input id="xKey" value="order.created.eu" aria-label="Routing key" spellcheck="false"><button class="b primary" id="xPub">Publish</button></div>
+          <div class="chips" id="xChips"></div>
+          <div class="verdict" id="xVerdict">Publish a message.</div>
+          <button class="b" id="xClear" style="align-self:flex-start">Clear queues</button>
+        </div>
+        <div class="queues" id="xQueues"></div>
+      </div>
+    </div>
+
+    <h3>What makes delivery reliable</h3>
+    <div class="terms">
+      <div class="term"><b>Manual ack</b><p>The consumer confirms after processing. If the connection drops before the ack, the message goes back to the queue with <code>redelivered = true</code>.</p></div>
+      <div class="term"><b>Prefetch (QoS)</b><p><code>ch.prefetch(10)</code>: at most 10 unacked messages per consumer. Without it, a fast and a slow worker get equal shares and the slow one drowns.</p></div>
+      <div class="term"><b>Durable + persistent</b><p>A <code>durable: true</code> queue survives a broker restart; a <code>persistent: true</code> message is written to disk. You need both.</p></div>
+      <div class="term"><b>Publisher confirms</b><p>The broker confirms to the producer that it accepted the message. Without this, publish is "send and hope".</p></div>
+      <div class="term"><b>Dead letter exchange</b><p>Rejected (<code>nack</code> without requeue), TTL-expired, or over-the-delivery-limit messages go to the DLX and from there into a dead-letter queue for inspection.</p></div>
+      <div class="term"><b>Quorum queues</b><p>A replicated queue built on Raft. The modern default for clusters, replacing the old mirrored queues.</p></div>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title"><span class="tag">Lab 4</span>The worker dies mid-processing</div>
+      <p class="hint">Deliver a message to the worker, then "kill" it before it finishes. Compare auto-ack and manual ack.</p>
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Ack mode"><button id="aAuto" aria-pressed="false">autoAck (noAck: true)</button><button id="aMan" aria-pressed="true">manual ack</button></div>
+        <button class="b" id="aDeliver">Deliver to worker</button>
+        <button class="b primary" id="aFinish">Process &amp; ack</button>
+        <button class="b danger" id="aCrash">Kill worker</button>
+        <button class="b" id="aReset">Reset</button>
+      </div>
+      <div class="lanes">
+        <div class="lane"><span>Queue</span><div class="belt" id="aQueue"></div></div>
+        <div class="lane"><span>At worker (unacked)</span><div class="belt" id="aFly"></div></div>
+        <div class="lane"><span>Processed</span><div class="belt" id="aDone"></div></div>
+        <div class="lane"><span>Lost</span><div class="belt" id="aLost"></div></div>
+      </div>
+      <div class="verdict" id="aVerdict">Deliver the first message.</div>
+    </div>
+
+    <h3>RabbitMQ or Kafka</h3>
+    <div class="tbl"><table>
+      <thead><tr><th></th><th>RabbitMQ</th><th>Kafka</th></tr></thead>
+      <tbody>
+        <tr><td>Model</td><td>Queue broker: read and ack, the message is gone</td><td>Distributed log: messages stay for N days, the consumer moves an offset</td></tr>
+        <tr><td>Routing</td><td>Flexible: exchanges, bindings, patterns</td><td>Topic + partition by key</td></tr>
+        <tr><td>Ordering</td><td>Within a queue with a single consumer</td><td>Within a partition</td></tr>
+        <tr><td>Replay</td><td>No (streams partly)</td><td>Yes, rewind the offset</td></tr>
+        <tr><td>When to pick</td><td>Task queues, RPC, complex routing, per-message ack, retry/DLQ</td><td>Event streaming, analytics, event sourcing, several independent readers of one history, very high throughput</td></tr>
+      </tbody>
+    </table></div>
+    <button class="done-btn" data-done="m4" aria-pressed="false">Mark module done</button>
+  </section>
+
+  <!-- ============ M5 ============ -->
+  <section class="mod" id="m5">
+    <div class="mod-head"><div class="eyebrow">Module 5 · 25 min</div><h2>Terminal lab</h2></div>
+    <div class="prose"><p>You'll need Docker and Node.js. Create an empty folder and run <code>npm init -y && npm i amqplib ioredis</code>.</p></div>
+
+    <div class="codebox"><div class="file"><span>1 · start the broker and Redis</span><button class="copy">Copy</button></div>
+<pre>docker run -d --name rabbit -p 5672:5672 -p 15672:15672 rabbitmq:4-management
+docker run -d --name redis -p 6379:6379 redis:7
+<span class="c"># UI: http://localhost:15672  (guest / guest)</span></pre></div>
+
+    <div class="codebox"><div class="file"><span>producer.js</span><button class="copy">Copy</button></div>
+<pre><span class="k">const</span> amqp = require(<span class="s">'amqplib'</span>);
+
+(<span class="k">async</span> () => {
+  <span class="k">const</span> conn = <span class="k">await</span> amqp.connect(<span class="s">'amqp://localhost'</span>);
+  <span class="k">const</span> ch = <span class="k">await</span> conn.createConfirmChannel();      <span class="c">// publisher confirms</span>
+  <span class="k">await</span> ch.assertExchange(<span class="s">'orders'</span>, <span class="s">'topic'</span>, { durable: <span class="k">true</span> });
+
+  <span class="k">const</span> key = process.argv[2] || <span class="s">'order.created.eu'</span>;
+  <span class="k">const</span> id = process.argv[3] || String(Date.now());  <span class="c">// pass an id to simulate duplicates</span>
+  ch.publish(<span class="s">'orders'</span>, key, Buffer.from(JSON.stringify({ id, key })),
+    { persistent: <span class="k">true</span>, messageId: id });
+  <span class="k">await</span> ch.waitForConfirms();                           <span class="c">// broker accepted it</span>
+  console.log(<span class="s">'sent'</span>, key, id);
+  <span class="k">await</span> conn.close();
+})();</pre></div>
+
+    <div class="codebox"><div class="file"><span>worker.js</span><button class="copy">Copy</button></div>
+<pre><span class="k">const</span> amqp = require(<span class="s">'amqplib'</span>);
+<span class="k">const</span> [, , queue = <span class="s">'q.email'</span>, pattern = <span class="s">'order.#'</span>] = process.argv;
+
+(<span class="k">async</span> () => {
+  <span class="k">const</span> conn = <span class="k">await</span> amqp.connect(<span class="s">'amqp://localhost'</span>);
+  <span class="k">const</span> ch = <span class="k">await</span> conn.createChannel();
+
+  <span class="c">// dead letter: everything rejected ends up here</span>
+  <span class="k">await</span> ch.assertExchange(<span class="s">'orders.dlx'</span>, <span class="s">'fanout'</span>, { durable: <span class="k">true</span> });
+  <span class="k">await</span> ch.assertQueue(<span class="s">'orders.dead'</span>, { durable: <span class="k">true</span> });
+  <span class="k">await</span> ch.bindQueue(<span class="s">'orders.dead'</span>, <span class="s">'orders.dlx'</span>, <span class="s">''</span>);
+
+  <span class="k">await</span> ch.assertExchange(<span class="s">'orders'</span>, <span class="s">'topic'</span>, { durable: <span class="k">true</span> });
+  <span class="k">await</span> ch.assertQueue(queue, { durable: <span class="k">true</span>,
+    arguments: { <span class="s">'x-dead-letter-exchange'</span>: <span class="s">'orders.dlx'</span> } });
+  <span class="k">await</span> ch.bindQueue(queue, <span class="s">'orders'</span>, pattern);
+
+  ch.prefetch(1);                                        <span class="c">// one unacked at a time</span>
+  console.log(<span class="s">`[${queue}] listening on ${pattern}`</span>);
+
+  ch.consume(queue, <span class="k">async</span> (msg) => {
+    <span class="k">const</span> data = JSON.parse(msg.content.toString());
+    console.log(<span class="s">`[${queue}] got`</span>, data.key, <span class="s">'redelivered:'</span>, msg.fields.redelivered);
+    <span class="k">try</span> {
+      <span class="k">await new</span> Promise(r => setTimeout(r, 3000));         <span class="c">// "work"</span>
+      <span class="k">if</span> (data.key.includes(<span class="s">'fail'</span>)) <span class="k">throw new</span> Error(<span class="s">'boom'</span>);
+      ch.ack(msg);
+      console.log(<span class="s">`[${queue}] done`</span>);
+    } <span class="k">catch</span> (e) {
+      ch.nack(msg, <span class="k">false</span>, <span class="k">false</span>);                        <span class="c">// no requeue → DLX</span>
+      console.log(<span class="s">`[${queue}] → dead letter`</span>);
+    }
+  }, { noAck: <span class="k">false</span> });
+})();</pre></div>
+
+    <div class="codebox"><div class="file"><span>lock.js — distributed lock on Redis</span><button class="copy">Copy</button></div>
+<pre><span class="k">const</span> Redis = require(<span class="s">'ioredis'</span>);
+<span class="k">const</span> { randomUUID } = require(<span class="s">'crypto'</span>);
+<span class="k">const</span> redis = <span class="k">new</span> Redis();
+
+<span class="k">const</span> RELEASE = <span class="s">`if redis.call('get', KEYS[1]) == ARGV[1]
+  then return redis.call('del', KEYS[1]) else return 0 end`</span>;
+
+<span class="k">async function</span> acquire(key, ttlMs) {
+  <span class="k">const</span> token = randomUUID();
+  <span class="k">const</span> ok = <span class="k">await</span> redis.set(key, token, <span class="s">'PX'</span>, ttlMs, <span class="s">'NX'</span>);
+  <span class="k">return</span> ok === <span class="s">'OK'</span> ? token : <span class="k">null</span>;
+}
+<span class="k">const</span> release = (key, token) => redis.eval(RELEASE, 1, key, token);
+
+(<span class="k">async</span> () => {
+  <span class="k">const</span> token = <span class="k">await</span> acquire(<span class="s">'lock:report'</span>, 10000);
+  <span class="k">if</span> (!token) { console.log(<span class="s">'busy, skipping'</span>); <span class="k">return</span> redis.quit(); }
+  console.log(<span class="s">'lock is mine, working for 5 s…'</span>);
+  <span class="k">await new</span> Promise(r => setTimeout(r, 5000));
+  console.log(<span class="s">'released:'</span>, <span class="k">await</span> release(<span class="s">'lock:report'</span>, token));
+  redis.quit();
+})();</pre></div>
+
+    <h3>Exercises</h3>
+    <ul class="tasks" id="tasks">
+      <li><label><input type="checkbox" id="t1"><span><b>Competing consumers.</b> Open two terminals with <code>node worker.js q.email "order.#"</code>, then run <code>node producer.js</code> 6 times. <small>Messages are split between the workers in turn (round-robin). This is how processing scales.</small></span></label></li>
+      <li><label><input type="checkbox" id="t2"><span><b>Pub/sub.</b> Add a third worker: <code>node worker.js q.eu "*.*.eu"</code>. Send <code>order.created.eu</code> and <code>order.created.us</code>. <small>Both queues get the first one, only q.email gets the second. Each queue received its own copy.</small></span></label></li>
+      <li><label><input type="checkbox" id="t3"><span><b>Crash before ack.</b> Send a message and hit Ctrl+C in the worker within those 3 seconds. Start the worker again. <small>You'll see <code>redelivered: true</code>. That's at-least-once in practice.</small></span></label></li>
+      <li><label><input type="checkbox" id="t4"><span><b>Dead letter.</b> <code>node producer.js order.fail.eu</code>. Open the UI → Queues → orders.dead → Get messages. <small>A poison message doesn't loop forever; it's parked for inspection.</small></span></label></li>
+      <li><label><input type="checkbox" id="t5"><span><b>Distributed lock.</b> Run <code>node lock.js</code> in two terminals at almost the same time. <small>The second prints "busy". Now change the TTL to 2000 while the work takes 5 s: both get the lock. That's why TTL needs tuning and why fencing exists.</small></span></label></li>
+      <li><label><input type="checkbox" id="t6"><span><b>Idempotency.</b> Make the worker skip duplicates. Walkthrough below. <small>Start with an in-memory <code>Set</code>, see why it breaks, then move to a table.</small></span></label></li>
+    </ul>
+
+    <h3>Exercise 6 walkthrough: idempotent consumer</h3>
+    <div class="prose">
+      <p>The case we're catching: the worker finished the work and then died before the <code>ack</code>. RabbitMQ delivers the message again, and the work runs twice: a second email, a second charge. So every message has a <code>messageId</code>, and the worker remembers which ids it already handled. <code>producer.js</code> already accepts an id as the second argument, so <code>node producer.js order.created.eu 42</code> run twice simulates a duplicate.</p>
+    </div>
+    <div class="codebox"><div class="file"><span>Step 1 · in worker.js, a Set above ch.consume and two changes inside</span><button class="copy">Copy</button></div>
+<pre><span class="k">const</span> processed = <span class="k">new</span> Set();
+
+ch.consume(queue, <span class="k">async</span> (msg) => {
+  <span class="k">const</span> id = msg.properties.messageId;
+
+  <span class="c">// 1. Duplicate: do nothing, but still ack,</span>
+  <span class="c">//    otherwise the message stays unacked</span>
+  <span class="k">if</span> (processed.has(id)) {
+    console.log(<span class="s">`[${queue}] duplicate ${id}, skipping`</span>);
+    ch.ack(msg);
+    <span class="k">return</span>;
+  }
+
+  <span class="k">const</span> data = JSON.parse(msg.content.toString());
+  <span class="k">try</span> {
+    <span class="k">await new</span> Promise(r => setTimeout(r, 3000));
+    <span class="k">if</span> (data.key.includes(<span class="s">'fail'</span>)) <span class="k">throw new</span> Error(<span class="s">'boom'</span>);
+
+    <span class="c">// 2. Remember AFTER the work succeeds and BEFORE the ack</span>
+    processed.add(id);
+    ch.ack(msg);
+  } <span class="k">catch</span> (e) {
+    ch.nack(msg, <span class="k">false</span>, <span class="k">false</span>);
+  }
+}, { noAck: <span class="k">false</span> });</pre></div>
+    <div class="prose">
+      <p>Order matters. If you add the id before the work and the work fails, the retry gets wrongly skipped as a duplicate.</p>
+      <p><b>Step 2 · check it.</b> Run one worker and send id <code>42</code> twice: the second one prints "duplicate". <b>Now break it.</b> Start a second worker on the same queue and send id <code>43</code> twice: round-robin sends each copy to a different process with its own <code>Set</code>, and both process it. Or restart the worker and send <code>42</code> again: the <code>Set</code> is empty after a restart. The worst part is that a restart after a crash is exactly the case we're defending against.</p>
+    </div>
+    <div class="codebox"><div class="file"><span>Step 3 · production version: a table with a unique constraint</span><button class="copy">Copy</button></div>
+<pre><span class="k">CREATE TABLE</span> processed_messages (
+  message_id   text <span class="k">PRIMARY KEY</span>,
+  processed_at timestamptz <span class="k">NOT NULL DEFAULT</span> now()
+);
+
+<span class="c">// worker.js (npm i pg)</span>
+ch.consume(queue, <span class="k">async</span> (msg) => {
+  <span class="k">const</span> id = msg.properties.messageId;
+  <span class="k">const</span> client = <span class="k">await</span> pool.connect();
+  <span class="k">try</span> {
+    <span class="k">await</span> client.query(<span class="s">'BEGIN'</span>);
+    <span class="k">const</span> r = <span class="k">await</span> client.query(
+      <span class="s">'INSERT INTO processed_messages (message_id) VALUES ($1) ON CONFLICT DO NOTHING'</span>, [id]);
+    <span class="k">if</span> (r.rowCount === 0) {                 <span class="c">// id already there: duplicate</span>
+      <span class="k">await</span> client.query(<span class="s">'ROLLBACK'</span>);
+      ch.ack(msg);
+      <span class="k">return</span>;
+    }
+    <span class="c">// business write in the SAME transaction</span>
+    <span class="k">await</span> client.query(<span class="s">"UPDATE orders SET status = 'paid' WHERE id = $1"</span>, [orderId]);
+    <span class="k">await</span> client.query(<span class="s">'COMMIT'</span>);
+    ch.ack(msg);
+  } <span class="k">catch</span> (e) {
+    <span class="k">await</span> client.query(<span class="s">'ROLLBACK'</span>);
+    ch.nack(msg, <span class="k">false</span>, <span class="k">false</span>);
+  } <span class="k">finally</span> {
+    client.release();
+  }
+});</pre></div>
+    <div class="prose">
+      <p>Why this holds up in every crash scenario:</p>
+      <ul>
+        <li><b>Crash before COMMIT.</b> Both the marker and the business write roll back. The message comes again and is processed normally.</li>
+        <li><b>Crash after COMMIT but before ack.</b> The message comes again, the <code>INSERT</code> hits the conflict, <code>rowCount = 0</code>, and it's skipped with an ack.</li>
+        <li><b>Two workers get the same id at once.</b> The second <code>INSERT</code> waits for the first to commit, then gets the conflict and skips.</li>
+        <li><b>Restarts and multiple instances.</b> The table is shared and survives restarts.</li>
+      </ul>
+      <p>It's the same principle as in Module 1: <code>INSERT … ON CONFLICT DO NOTHING</code> is an atomic "check and write" in one statement. No lock needed.</p>
+    </div>
+    <div class="callout"><b>Limits</b>The transaction only protects what lives in the same database. If processing means sending an email or calling a payment API, you can't put that call inside the transaction. Either pass your own idempotency key to the provider (most payment and many email services support it) so they drop the duplicate, or accept a rare double email where that's harmless. Clean old rows out of <code>processed_messages</code> periodically (say, older than 7–30 days): duplicates arrive within minutes or hours, not months.</div>
+    <button class="done-btn" data-done="m5" aria-pressed="false">Mark module done</button>
+  </section>
+
+  <!-- ============ M6 ============ -->
+  <section class="mod" id="m6">
+    <div class="mod-head"><div class="eyebrow">Module 6 · 15 min</div><h2>Cheat sheet and quiz</h2></div>
+    <div class="tbl"><table>
+      <thead><tr><th>When the system has…</th><th>Reach for</th></tr></thead>
+      <tbody>
+        <tr><td>A slow operation inside a request (email, PDF, video processing)</td><td>Queue + workers, respond 202, report status via polling or webhook</td></tr>
+        <tr><td>One event, many reactions</td><td>Fanout or topic exchange, one queue per service</td></tr>
+        <tr><td>Traffic spikes</td><td>Queue as a buffer, autoscale workers on queue length</td></tr>
+        <tr><td>Write to the DB and notify others</td><td>Outbox pattern</td></tr>
+        <tr><td>Duplicate messages</td><td>Idempotent consumer, dedupe by messageId</td></tr>
+        <tr><td>A message that keeps failing</td><td>Retry with backoff (TTL queue or delayed exchange) → DLQ + alert</td></tr>
+        <tr><td>Ordered events per user</td><td>Consistent hash exchange / partitions by userId, one consumer per partition</td></tr>
+        <tr><td>"Only one instance does X"</td><td>Redis lock with TTL and token; for critical data, a fencing token or an etcd lease</td></tr>
+        <tr><td>Two purchases of the last item</td><td>Atomic conditional UPDATE or optimistic locking, no distributed lock</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="quiz" id="quiz"></div>
+    <div class="score" id="quizScore"></div>
+    <button class="done-btn" data-done="m6" aria-pressed="false">Mark module done</button>
+
+    <h3>Further reading</h3>
+    <div class="res">
+      <a href="https://www.rabbitmq.com/tutorials/tutorial-one-javascript" target="_blank" rel="noopener"><em>Official · 1 h</em><b>RabbitMQ Tutorials (JavaScript)</b><span>Six short lessons, from hello world to topic and RPC. The natural next step after Lab 3.</span></a>
+      <a href="https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html" target="_blank" rel="noopener"><em>Article · 20 min</em><b>How to do distributed locking</b><span>Martin Kleppmann on GC pauses, fencing tokens, and why Redlock doesn't fit correctness.</span></a>
+      <a href="https://www.antirez.com/news/101" target="_blank" rel="noopener"><em>Response · 15 min</em><b>Is Redlock safe?</b><span>The counterargument from Redis's author. Read it after Kleppmann to see both sides.</span></a>
+      <a href="https://github.com/RabbitMQSimulator/RabbitMQSimulator" target="_blank" rel="noopener"><em>Tool</em><b>RabbitMQ Simulator</b><span>A visual simulator of exchanges, queues, and consumers. Runs locally.</span></a>
+      <a href="https://github.com/rabbitmq/rabbitmq-tutorials/tree/main/javascript-nodejs" target="_blank" rel="noopener"><em>Code</em><b>rabbitmq-tutorials / javascript-nodejs</b><span>Ready-made amqplib code for the official tutorials.</span></a>
+    </div>
+  </section>
+  </main>
+</div>
+
+<script>
+(function(){
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+function seg(btns,active){btns.forEach(b=>b.setAttribute('aria-pressed',String(b===active)))}
+
+/* progress */
+let done=store.get('lq-en-done',{});
+function renderProgress(){
+  const n=Object.values(done).filter(Boolean).length;
+  $('#progTxt').textContent=n+' / 6 done';$('#progBar').style.width=(n/6*100)+'%';
+  $$('#routeList a').forEach(a=>a.classList.toggle('done',!!done[a.dataset.m]));
+  $$('.done-btn').forEach(b=>{const on=!!done[b.dataset.done];b.setAttribute('aria-pressed',on);b.textContent=on?'Done ✓':'Mark module done'});
+}
+$$('.done-btn').forEach(b=>b.addEventListener('click',()=>{done[b.dataset.done]=!done[b.dataset.done];store.set('lq-en-done',done);renderProgress()}));
+renderProgress();
+let tasks=store.get('lq-en-tasks',{});
+$$('#tasks input').forEach(i=>{i.checked=!!tasks[i.id];i.addEventListener('change',()=>{tasks[i.id]=i.checked;store.set('lq-en-tasks',tasks)})});
+
+/* copy */
+$$('.copy').forEach(b=>b.addEventListener('click',()=>{
+  const pre=b.closest('.codebox').querySelector('pre');const txt=pre.innerText;
+  const ok=()=>{b.textContent='Copied';setTimeout(()=>b.textContent='Copy',1400)};
+  try{navigator.clipboard.writeText(txt).then(ok,()=>sel(pre))}catch(e){sel(pre)}
+  function sel(el){const r=document.createRange();r.selectNodeContents(el);const s=getSelection();s.removeAllRanges();s.addRange(r);b.textContent='Selected, press Ctrl+C'}
+}));
+
+/* Lab 1: race */
+let R, raceLock=false;
+function raceInit(){R={counter:0,holder:null,w:{A:{left:5,phase:'read',local:0},B:{left:5,phase:'read',local:0}},lines:[]};raceRender();$('#raceVerdict').className='verdict';$('#raceVerdict').textContent='Press "Run all" or go step by step.'}
+function rlog(cls,t){R.lines.push([cls,t])}
+function raceStep(){
+  const alive=['A','B'].filter(k=>R.w[k].left>0);
+  if(!alive.length)return false;
+  const k=alive[Math.floor(Math.random()*alive.length)], w=R.w[k];
+  if(w.phase==='read'){
+    if(raceLock){ if(R.holder&&R.holder!==k){rlog('w',`${k}: waiting for mutex (held by ${R.holder})`);return true} if(!R.holder){R.holder=k;rlog(k,`${k}: lock()`)} }
+    w.local=R.counter;w.phase='write';rlog(k,`${k}: read  counter = ${w.local}`);
+  }else{
+    R.counter=w.local+1;w.phase='read';w.left--;rlog(k,`${k}: write counter = ${R.counter}`);
+    if(raceLock){R.holder=null;rlog(k,`${k}: unlock()`)}
+  }
+  return true;
+}
+function raceRender(){
+  $('#raceCounter').textContent=R.counter;$('#raceHolder').textContent=raceLock?(R.holder||'free'):'—';
+  const L=$('#raceLog');L.innerHTML=R.lines.map(([c,t])=>`<div class="${c}">${t}</div>`).join('');L.scrollTop=L.scrollHeight;
+  if(R.w.A.left===0&&R.w.B.left===0){const v=$('#raceVerdict');
+    if(R.counter===10){v.className='verdict ok';v.textContent=raceLock?'10 of 10. The mutex serialized read→write, no write was lost.':'10 of 10 — lucky this time. Run it a few more times.'}
+    else{v.className='verdict err';v.textContent=`${R.counter} instead of 10. ${10-R.counter} increments lost: both read the same value, and the later write overwrote the earlier one.`}}
+}
+$('#raceStep').onclick=()=>{raceStep();raceRender()};
+$('#raceRun').onclick=()=>{raceInit();let g=0;while(raceStep()&&g++<500);raceRender()};
+$('#raceReset').onclick=raceInit;
+$('#raceNoLock').onclick=e=>{raceLock=false;seg([$('#raceNoLock'),$('#raceLock')],e.target);raceInit()};
+$('#raceLock').onclick=e=>{raceLock=true;seg([$('#raceNoLock'),$('#raceLock')],e.target);raceInit()};
+raceInit();
+
+/* Lab 2: fencing */
+let fence=false, fi=0;
+const FS=()=>[
+ ['t=0s','Client 1 takes the lock (TTL 10 s)'+(fence?', receives token 33':'')+'.'],
+ ['t=1s','Client 1 freezes: a 15 s stop-the-world GC pause. It has no idea.'],
+ ['t=10s','TTL expires. Redis deletes the key; the lock is free.'],
+ ['t=11s','Client 2 takes the lock'+(fence?', token 34':'')+'.'],
+ ['t=12s','Client 2 writes to the DB: balance = 70'+(fence?' (token 34, storage remembers 34)':'')+'. ✓'],
+ ['t=16s',fence?'Client 1 wakes up and writes balance = 40 with token 33. DB: 33 < 34 → rejected. Data intact.':'Client 1 wakes up, sure the lock is still its own, and writes balance = 40. Client 2\'s write is gone.']
+];
+function fRender(){
+  const st=FS();$('#fSteps').innerHTML=st.map(([t,s],i)=>{let c=i<fi?'on':'';if(i===fi-1)c+=' cur';if(i===5&&fi===6)c+=fence?' good':' bad';return `<li class="${c}"><span class="t">${t}</span><span>${s}</span></li>`}).join('');
+  const v=$('#fVerdict');
+  if(fi<6){v.className='verdict';v.textContent=`Step ${fi} of 6`}
+  else if(fence){v.className='verdict ok';v.textContent='The fencing token saved it: the check happened in the storage, which sees the token order.'}
+  else{v.className='verdict err';v.textContent='Lost update. Both clients believed they held the lock. No TTL value would have helped.'}
+}
+$('#fNext').onclick=()=>{if(fi<6)fi++;fRender()};
+$('#fReset').onclick=()=>{fi=0;fRender()};
+$('#fNo').onclick=e=>{fence=false;seg([$('#fNo'),$('#fYes')],e.target);fi=0;fRender()};
+$('#fYes').onclick=e=>{fence=true;seg([$('#fNo'),$('#fYes')],e.target);fi=0;fRender()};
+fRender();
+
+/* Lab 3: exchange */
+const BIND={
+  direct:[['q.billing',['order.paid']],['q.email',['order.created','order.paid']],['q.audit',['order.cancelled']]],
+  topic:[['q.billing',['order.paid.*']],['q.email',['order.#']],['q.eu',['*.*.eu']],['q.audit',['#.cancelled.#']]],
+  fanout:[['q.email',['(key ignored)']],['q.analytics',['(key ignored)']],['q.push',['(key ignored)']]]
+};
+const CHIPS={direct:['order.paid','order.created','order.cancelled','order.shipped'],topic:['order.created.eu','order.paid.us','order.created','order.cancelled.eu','user.signup.eu'],fanout:['anything','order.created']};
+let xt='topic', xc={};
+function topicMatch(pat,key){
+  const p=pat.split('.'),k=key.split('.');
+  const m=(i,j)=>{if(i===p.length)return j===k.length;
+    if(p[i]==='#'){for(let s=j;s<=k.length;s++)if(m(i+1,s))return true;return false}
+    if(j===k.length)return false;
+    return (p[i]==='*'||p[i]===k[j])&&m(i+1,j+1)};
+  return m(0,0);
+}
+function routes(key){return BIND[xt].filter(([,bs])=>bs.some(b=>xt==='fanout'||(xt==='direct'?b===key:topicMatch(b,key)))).map(([q])=>q)}
+function xRender(hits=[]){
+  $('#xQueues').innerHTML=BIND[xt].map(([q,bs])=>`<div class="q ${hits.includes(q)?'hit':''}"><span class="qn">${q}</span><span class="bind">binding: ${bs.join(' | ')}</span><span class="cnt">${'<i></i>'.repeat(Math.min(xc[q]||0,12))}</span></div>`).join('');
+  $('#xChips').innerHTML=CHIPS[xt].map(c=>`<button class="chip">${c}</button>`).join('');
+  $$('#xChips .chip').forEach(c=>c.onclick=()=>{$('#xKey').value=c.textContent;pub()});
+}
+function esc(s){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function pub(){
+  const key=$('#xKey').value.trim();const hits=routes(key);hits.forEach(q=>xc[q]=(xc[q]||0)+1);
+  const v=$('#xVerdict');
+  if(!hits.length){v.className='verdict err';v.textContent=`"${key}" matched no binding. The message is silently dropped (unless there's an alternate exchange or the mandatory flag).`}
+  else{v.className='verdict ok';v.textContent=`"${key}" → ${hits.join(', ')}. Each queue got its own copy.`}
+  xRender(hits);
+}
+$('#xPub').onclick=pub;$('#xKey').addEventListener('keydown',e=>{if(e.key==='Enter')pub()});
+$('#xClear').onclick=()=>{xc={};xRender();$('#xVerdict').className='verdict';$('#xVerdict').textContent='Queues are empty.'};
+$$('#xType button').forEach(b=>b.onclick=()=>{xt=b.dataset.t;seg($$('#xType button'),b);xc={};$('#xKey').value=CHIPS[xt][0];$('#xVerdict').className='verdict';$('#xVerdict').textContent='Publish a message.';xRender()});
+xRender();
+
+/* Lab 4: ack */
+let A, aMode='manual';
+function aInit(){A={q:[1,2,3,4,5].map(n=>({id:'m'+n,re:false})),fly:null,done:[],lost:[]};aRender('Deliver the first message.','')}
+function aRender(msg,cls){
+  const chip=(m,c)=>`<span class="msg ${c}">${m.id}${m.re?' ↺':''}</span>`;
+  $('#aQueue').innerHTML=A.q.map(m=>chip(m,m.re?'re':'')).join('')||'<span class="hint">empty</span>';
+  $('#aFly').innerHTML=A.fly?chip(A.fly,'fly'):'';
+  $('#aDone').innerHTML=A.done.map(m=>chip(m,'ok')).join('');
+  $('#aLost').innerHTML=A.lost.map(m=>chip(m,'lost')).join('');
+  const v=$('#aVerdict');v.className='verdict '+cls;v.textContent=msg;
+}
+$('#aDeliver').onclick=()=>{
+  if(A.fly)return aRender('Prefetch = 1: until the worker acks, it gets no new message.','');
+  if(!A.q.length)return aRender('The queue is empty.','');
+  A.fly=A.q.shift();
+  aRender(aMode==='auto'?`${A.fly.id} delivered. In autoAck mode the broker has already dropped it.`:`${A.fly.id} delivered and sitting unacked. The broker still keeps a copy.`,'');
+};
+$('#aFinish').onclick=()=>{if(!A.fly)return aRender('The worker has nothing.','');const m=A.fly;A.done.push(m);A.fly=null;aRender(`${m.id} processed${aMode==='manual'?', ack sent, the broker deleted it':''}.`,'ok')};
+$('#aCrash').onclick=()=>{
+  if(!A.fly)return aRender('The worker dies holding nothing — nothing lost.','');
+  const m=A.fly;A.fly=null;
+  if(aMode==='auto'){A.lost.push(m);aRender(`${m.id} is lost for good. The broker considered it delivered. That's at-most-once.`,'err')}
+  else{m.re=true;A.q.unshift(m);aRender(`The connection dropped before the ack. ${m.id} is back at the head of the queue with redelivered = true. That's at-least-once, so the consumer must be idempotent.`,'ok')}
+};
+$('#aReset').onclick=aInit;
+$('#aAuto').onclick=e=>{aMode='auto';seg([$('#aAuto'),$('#aMan')],e.target);aInit()};
+$('#aMan').onclick=e=>{aMode='manual';seg([$('#aAuto'),$('#aMan')],e.target);aInit()};
+aInit();
+
+/* Quiz */
+const Q=[
+ ['Node.js runs JS on one thread. Can two HTTP requests still race?',['No, the event loop serializes everything','Yes, another request can read the same data between awaits','Only with worker_threads'],1,'Code between two awaits is atomic, but read → await → write is not. Both requests read the value before either writes.'],
+ ['Why should a Redis lock key hold a unique token instead of "1"?',['So you don\'t delete someone else\'s lock after yours expired','Redis rejects identical values','So the lock is acquired faster'],0,'Release checks that the value is still yours. Otherwise a client waking from a pause deletes a lock someone else now holds.'],
+ ['A client held a Redis lock, paused for GC longer than the TTL, and woke up. What actually protects the data?',['A longer TTL','Redlock on 5 nodes','A fencing token checked by the storage itself'],2,'Any TTL can be exceeded. Protection has to live where the data is written: the storage rejects older tokens.'],
+ ['A fanout exchange receives a message with routing key "billing". Where does it go?',['To the queue bound with key "billing"','To every bound queue','Nowhere, fanout doesn\'t accept keys'],1,'Fanout ignores the routing key and puts a copy in every bound queue.'],
+ ['Topic binding "order.*". Does the queue get a message with key "order.created.eu"?',['Yes','No'],1,'* means exactly one word. For any number of words you need "order.#".'],
+ ['What does ch.prefetch(1) do?',['Limits the queue to one message','At most one unacked message per consumer','Enables publisher confirms'],1,'The broker won\'t deliver the next message until the consumer acks the current one, so a slow worker isn\'t overloaded.'],
+ ['Manual ack in RabbitMQ gives at-least-once. What follows for the consumer?',['Nothing, duplicates never happen','The consumer must be idempotent','Prefetch must be disabled'],1,'A crash between processing and ack means redelivery. Dedupe by messageId produces the "exactly once" effect.'],
+ ['A service saves an order in Postgres and publishes an event to RabbitMQ. What does the Outbox pattern solve?',['Slow publishing','Dual write: DB and broker without a shared transaction','Message ordering'],1,'The event is written to an outbox table in the same transaction as the order, and a separate process reliably delivers it to the broker.'],
+ ['When is Kafka clearly the better choice over RabbitMQ?',['Tasks with per-message retry and DLQ','A new service needs to re-read the event history','Complex pattern-based routing'],1,'Kafka is a log with retention, so a new consumer can start from zero. RabbitMQ deletes messages after ack.']
+];
+let score=0, answered=0;
+$('#quiz').innerHTML=Q.map((q,i)=>`<div class="qcard" data-i="${i}"><div class="qq">${i+1}. ${q[0]}</div><div class="opts">${q[1].map((o,j)=>`<button class="opt" data-j="${j}">${o}</button>`).join('')}</div><div class="expl" hidden>${q[3]}</div></div>`).join('');
+$$('.qcard').forEach(card=>{const q=Q[+card.dataset.i];card.querySelectorAll('.opt').forEach(b=>b.onclick=()=>{
+  const j=+b.dataset.j;card.querySelectorAll('.opt').forEach(x=>{x.disabled=true;if(+x.dataset.j===q[2])x.classList.add('right')});
+  if(j!==q[2])b.classList.add('wrong');else score++;answered++;card.querySelector('.expl').hidden=false;
+  $('#quizScore').textContent=`Score: ${score} / ${answered}`+(answered===Q.length?(score>=8?' · solid grasp of the topic':' · revisit the modules you missed'):'');
+})});
+})();
+</script>
+
+</body></html>
